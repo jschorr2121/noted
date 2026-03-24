@@ -108,6 +108,8 @@ export default function Home() {
 
       // Always compress — extracts audio from video, converts to optimized MP3
       try {
+        setProgress("Loading audio compressor...");
+        await loadFFmpeg();
         setProgress("Compressing audio...");
         fileToUpload = await compressAudio(file);
         const compressedSizeMB = fileToUpload.size / (1024 * 1024);
@@ -116,10 +118,16 @@ export default function Home() {
           `${originalSizeMB.toFixed(1)}MB → ${compressedSizeMB.toFixed(1)}MB (${reduction}% smaller)`
         );
       } catch (compressErr) {
-        console.warn("Compression failed, uploading original:", compressErr);
-        // If compression fails and file is small enough, try original
-        if (originalSizeMB > 4) {
-          throw new Error("Could not compress file. Please try a smaller file or convert to MP3 first.");
+        console.error("Compression failed:", compressErr);
+        // If compression fails and file is small enough, try uploading original
+        if (originalSizeMB <= 4) {
+          console.warn("Skipping compression, file small enough to upload directly");
+          setCompressionInfo("Compression unavailable — uploading original");
+        } else {
+          throw new Error(
+            "Audio compression failed. This usually means your browser doesn't support SharedArrayBuffer. " +
+            "Try Chrome or Edge, or convert to MP3 manually first."
+          );
         }
       }
 
