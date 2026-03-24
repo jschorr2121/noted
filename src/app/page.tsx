@@ -51,11 +51,18 @@ export default function Home() {
   const loadFFmpeg = async () => {
     if (ffmpegRef.current?.loaded) return ffmpegRef.current;
     const ffmpeg = new FFmpeg();
-    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
-    await ffmpeg.load({
-      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
-      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
+    ffmpeg.on("log", ({ message }) => {
+      console.log("[ffmpeg]", message);
     });
+    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
+    try {
+      const coreURL = await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript");
+      const wasmURL = await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm");
+      await ffmpeg.load({ coreURL, wasmURL });
+    } catch (loadErr) {
+      console.error("FFmpeg load failed:", loadErr);
+      throw new Error("Failed to load audio compressor. Check browser console for details.");
+    }
     ffmpegRef.current = ffmpeg;
     return ffmpeg;
   };
