@@ -80,7 +80,7 @@ export default function Home() {
     ]);
 
     const data = await ffmpeg.readFile(outputName);
-    const blob = new Blob([data], { type: "audio/mpeg" });
+    const blob = new Blob([data as Uint8Array], { type: "audio/mpeg" });
 
     // Cleanup
     await ffmpeg.deleteFile(inputName).catch(() => {});
