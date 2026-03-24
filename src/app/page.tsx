@@ -187,8 +187,11 @@ export default function Home() {
     const totalCompressed = chunks.reduce((s, c) => s + c.size, 0);
     const originalMB = inputFile.size / 1024 / 1024;
     const compressedMB = totalCompressed / 1024 / 1024;
-    const reduction = ((1 - compressedMB / originalMB) * 100).toFixed(0);
-    const info = `${originalMB.toFixed(1)}MB → ${compressedMB.toFixed(1)}MB (${reduction}% smaller, ${numChunks} chunk${numChunks > 1 ? "s" : ""})`;
+    const reduction = Math.round((1 - compressedMB / originalMB) * 100);
+    const chunkInfo = numChunks > 1 ? `, ${numChunks} chunks` : "";
+    const info = reduction > 15
+      ? `${originalMB.toFixed(1)}MB → ${compressedMB.toFixed(1)}MB (${reduction}% smaller${chunkInfo})`
+      : `Processed: ${numChunks} chunk${numChunks > 1 ? "s" : ""}, ${compressedMB.toFixed(1)}MB total`;
     setCompressionInfo(info);
     addLog(info, "success");
 
