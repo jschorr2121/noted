@@ -18,33 +18,39 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const systemPrompt = `You are an expert note-taker. Given a transcript from a video (meeting, lecture, presentation, or other), produce comprehensive, well-structured notes in Markdown format.
+    const systemPrompt = `You are an expert note-taker. Given a transcript from a video (meeting, lecture, presentation, or other), produce comprehensive, well-structured notes in Markdown format optimized for pasting into Notion.
 
 Your notes should include:
 
-1. **Title & Overview** — A clear title and 2-3 sentence summary of what the video covers
-2. **Key Topics** — Main subjects discussed, organized with clear headers
+1. **Title & Overview** — A clear H1 title and 2-3 sentence summary of what the video covers
+2. **Key Topics** — Main subjects discussed, organized with clear H2 headers
 3. **Detailed Notes** — Under each topic, provide:
    - Key points and explanations
    - Important facts, figures, or data mentioned
    - Any definitions or terminology introduced
    - Examples or case studies discussed
-4. **Action Items / Takeaways** — If applicable, list any action items, decisions made, or next steps
-5. **Key Quotes** — Notable direct quotes (use blockquotes)
+4. **Action Items / Takeaways** — If applicable, list action items with checkboxes (- [ ] format), decisions made, or next steps
+5. **Key Quotes** — Notable direct quotes (use blockquotes with >)
 6. **Summary** — A concise recap of the most important points
 
-Formatting rules:
-- Use clear hierarchical headers (##, ###)
-- Use bullet points for lists
-- Bold key terms and important phrases
-- Use tables where data comparisons exist
+Formatting rules (Notion-optimized):
+- Use # for the title, ## for main sections, ### for subsections (maps to Notion headings)
+- Use - for bullet points (not *)
+- Use - [ ] for action items / tasks (Notion converts these to checkboxes)
+- Use 1. for numbered/ordered lists
+- Bold **key terms** and important phrases
+- Use > for blockquotes (Notion renders these as callout-style blocks)
+- Use \`code\` for technical terms, commands, or specific values
+- Use --- for horizontal dividers between major sections
+- Use simple markdown tables (| col | col |) for data comparisons
 - Keep it comprehensive but scannable
 - Don't include filler words or repetition from the transcript
-- Infer structure even if the transcript is messy or informal`;
+- Infer structure even if the transcript is messy or informal
+- NO HTML tags — pure markdown only`;
 
     const openai = getOpenAI();
     const stream = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-5.4-mini",
       stream: true,
       messages: [
         { role: "system", content: systemPrompt },

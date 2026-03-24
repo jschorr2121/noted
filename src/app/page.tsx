@@ -101,6 +101,26 @@ export default function Home() {
     }
   };
 
+  const [copied, setCopied] = useState(false);
+
+  const copyForNotion = async () => {
+    try {
+      await navigator.clipboard.writeText(notes);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback
+      const textarea = document.createElement("textarea");
+      textarea.value = notes;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   const downloadMarkdown = () => {
     const blob = new Blob([notes], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
@@ -294,6 +314,16 @@ th{background:#f5f5f5;font-weight:600}</style></head>
                 </button>
               </div>
               <div className="flex gap-2">
+                <button
+                  onClick={copyForNotion}
+                  className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                    copied
+                      ? "bg-green-600/20 text-green-400 border border-green-600/30"
+                      : "bg-indigo-600 hover:bg-indigo-500 text-white"
+                  }`}
+                >
+                  {copied ? "Copied!" : "Copy for Notion"}
+                </button>
                 <button
                   onClick={downloadMarkdown}
                   className="px-3 py-1.5 text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-md transition-colors"
