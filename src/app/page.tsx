@@ -62,12 +62,23 @@ export default function Home() {
         body: formData,
       });
 
-      if (!transcribeRes.ok) {
-        const err = await transcribeRes.json();
-        throw new Error(err.error || "Transcription failed");
+      let transcribeData;
+      const responseText = await transcribeRes.text();
+      try {
+        transcribeData = JSON.parse(responseText);
+      } catch {
+        // Non-JSON response (e.g. "Request Entity Too Large")
+        if (responseText.includes("Request Entity") || responseText.includes("too large") || transcribeRes.status === 413) {
+          throw new Error("File too large for server upload. Please compress your file to under 4MB (e.g. convert to MP3 at 64kbps) and try again.");
+        }
+        throw new Error(`Server error: ${responseText.substring(0, 100)}`);
       }
 
-      const { text } = await transcribeRes.json();
+      if (!transcribeRes.ok) {
+        throw new Error(transcribeData.error || "Transcription failed");
+      }
+
+      const text = transcribeData.text;
       setTranscript(text);
 
       // Step 2: Generate Notes

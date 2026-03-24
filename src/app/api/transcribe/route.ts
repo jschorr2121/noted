@@ -1,45 +1,64 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI, { toFile } from "openai";
-
-function getOpenAI() {
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-}
 
 export const maxDuration = 300;
 export const runtime = "nodejs";
 
+// Proxy to OpenAI Whisper - streams the request body directly
+// to avoid Vercel's body size limits
 export async function POST(req: NextRequest) {
   try {
-    const formData = await req.formData();
-    const file = formData.get("file") as File | null;
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
+    }
 
+    // Forward the multipart form data directly to OpenAI
+    const contentType = req.headers.get("content-type") || "";
+
+    // Read raw body and rebuild form for OpenAI
+    let formData: FormData;
+    try {
+      formData = await req.formData();
+    } catch {
+      return NextResponse.json(
+        { error: "File too large. Vercel limits uploads to ~4.5MB. Please compress your audio first (e.g. convert to MP3 at 64kbps)." },
+        { status: 413 }
+      );
+    }
+
+    const file = formData.get("file") as File | null;
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const fileSizeMB = buffer.length / (1024 * 1024);
+    // Build a new FormData for OpenAI
+    const openaiForm = new FormData();
+    openaiForm.append("file", file, file.name);
+    openaiForm.append("model", "whisper-1");
+    openaiForm.append("response_format", "verbose_json");
+    openaiForm.append("timestamp_granularities[]", "segment");
 
-    // Whisper API accepts up to 25MB
-    if (fileSizeMB > 25) {
-      return NextResponse.json(
-        { error: "File too large for transcription. Please upload a file under 25MB, or use a shorter video." },
-        { status: 400 }
-      );
-    }
-
-    const openai = getOpenAI();
-    const uploadFile = await toFile(buffer, file.name, { type: file.type });
-    
-    const transcription = await openai.audio.transcriptions.create({
-      file: uploadFile,
-      model: "whisper-1",
-      response_format: "verbose_json",
-      timestamp_granularities: ["segment"],
+    const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: openaiForm,
     });
 
-    return NextResponse.json({ text: transcription.text });
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error("OpenAI error:", errText);
+      let errMsg = "Transcription failed";
+      try {
+        const errJson = JSON.parse(errText);
+        errMsg = errJson.error?.message || errMsg;
+      } catch {}
+      return NextResponse.json({ error: errMsg }, { status: response.status });
+    }
+
+    const data = await response.json();
+    return NextResponse.json({ text: data.text });
   } catch (error) {
     console.error("Transcription error:", error);
     const message = error instanceof Error ? error.message : "Transcription failed";
