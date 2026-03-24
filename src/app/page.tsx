@@ -331,6 +331,42 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
+  const downloadPDF = async () => {
+    const container = document.getElementById("notes-content");
+    if (!container) return;
+    // Dynamic import html2pdf
+    const html2pdf = (await import("html2pdf.js")).default;
+    const clone = container.cloneNode(true) as HTMLElement;
+    // Style for PDF (light theme)
+    clone.style.cssText = "background:#fff;color:#1a1a1a;padding:32px;font-family:system-ui,sans-serif;font-size:13px;line-height:1.7";
+    clone.querySelectorAll("h1,h2,h3").forEach((el) => {
+      (el as HTMLElement).style.color = "#1a1a1a";
+    });
+    clone.querySelectorAll("p,li,td").forEach((el) => {
+      (el as HTMLElement).style.color = "#333";
+    });
+    clone.querySelectorAll("strong").forEach((el) => {
+      (el as HTMLElement).style.color = "#111";
+    });
+    clone.querySelectorAll("blockquote").forEach((el) => {
+      (el as HTMLElement).style.cssText = "border-left:3px solid #6366f1;padding-left:12px;color:#555;font-style:italic";
+    });
+    clone.querySelectorAll("th").forEach((el) => {
+      (el as HTMLElement).style.cssText = "background:#f5f5f5;color:#1a1a1a;border:1px solid #ddd;padding:6px 10px";
+    });
+    clone.querySelectorAll("td").forEach((el) => {
+      (el as HTMLElement).style.cssText = "border:1px solid #ddd;padding:6px 10px";
+    });
+    const filename = `${file?.name?.replace(/\.[^.]+$/, "") || "notes"}-notes.pdf`;
+    html2pdf().set({
+      margin: [12, 12, 12, 12],
+      filename,
+      image: { type: "jpeg", quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+    }).from(clone).save();
+  };
+
   const downloadHTML = () => {
     const container = document.getElementById("notes-content");
     if (!container) return;
@@ -520,6 +556,7 @@ th{background:#f5f5f5;font-weight:600}</style></head>
                   <button onClick={copyForNotion} className={`px-3 py-1.5 text-xs rounded-md transition-colors ${copied ? "bg-green-600/20 text-green-400 border border-green-600/30" : "bg-indigo-600 hover:bg-indigo-500 text-white"}`}>
                     {copied ? "Copied!" : "Copy for Notion"}
                   </button>
+                  <button onClick={downloadPDF} className="px-3 py-1.5 text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-md transition-colors">Download .pdf</button>
                   <button onClick={downloadMarkdown} className="px-3 py-1.5 text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-md transition-colors">Download .md</button>
                   <button onClick={downloadHTML} className="px-3 py-1.5 text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-md transition-colors">Download .html</button>
                   <button onClick={reset} className="px-3 py-1.5 text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-md transition-colors">New Video</button>
