@@ -94,14 +94,16 @@ export default function Home() {
       }
     });
 
-    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
+    // Single-threaded core — no SharedArrayBuffer needed, works in all browsers
+    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
 
     try {
       addLog("Downloading ffmpeg core (~30MB, first time only)...");
       const coreURL = await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript");
-      addLog("Core loaded", "success");
+      addLog("Core JS loaded", "success");
       const wasmURL = await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm");
       addLog("WASM loaded", "success");
+      addLog("Initializing ffmpeg (this can take 10-20s)...");
       await ffmpeg.load({ coreURL, wasmURL });
       addLog("Audio compressor ready", "success");
     } catch (loadErr) {
