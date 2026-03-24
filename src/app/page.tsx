@@ -18,8 +18,11 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = useCallback((f: File) => {
-    if (!f.type.startsWith("video/") && !f.name.endsWith(".mp4") && !f.name.endsWith(".webm") && !f.name.endsWith(".mov")) {
-      setError("Please upload a video file (MP4, WebM, or MOV)");
+    const validExts = [".mp4", ".webm", ".mov", ".m4a", ".mp3", ".wav", ".ogg", ".flac"];
+    const isValidType = f.type.startsWith("video/") || f.type.startsWith("audio/");
+    const isValidExt = validExts.some((ext) => f.name.toLowerCase().endsWith(ext));
+    if (!isValidType && !isValidExt) {
+      setError("Please upload a video or audio file (MP4, WebM, MOV, M4A, MP3, WAV)");
       return;
     }
     if (f.size > 500 * 1024 * 1024) {
@@ -185,7 +188,7 @@ th{background:#f5f5f5;font-weight:600}</style></head>
             </div>
             <h1 className="text-lg font-semibold tracking-tight">Noted</h1>
           </div>
-          <span className="text-xs text-neutral-500">Video to Notes</span>
+          <span className="text-xs text-neutral-500">Video & Audio to Notes</span>
         </div>
       </header>
 
@@ -209,17 +212,22 @@ th{background:#f5f5f5;font-weight:600}</style></head>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="video/*,.mp4,.webm,.mov"
+                accept="video/*,audio/*,.mp4,.webm,.mov,.m4a,.mp3,.wav,.ogg,.flac"
                 className="hidden"
                 onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
               />
               {file ? (
                 <div>
                   <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-indigo-600/10 flex items-center justify-center">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polygon points="23 7 16 12 23 17 23 7"/>
-                      <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
-                    </svg>
+                    {file.type.startsWith("audio/") || file.name.match(/\.(m4a|mp3|wav|ogg|flac)$/i) ? (
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+                      </svg>
+                    ) : (
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                      </svg>
+                    )}
                   </div>
                   <p className="text-sm font-medium text-neutral-200 truncate">{file.name}</p>
                   <p className="text-xs text-neutral-500 mt-1">{formatFileSize(file.size)}</p>
@@ -234,8 +242,8 @@ th{background:#f5f5f5;font-weight:600}</style></head>
                       <line x1="12" y1="3" x2="12" y2="15"/>
                     </svg>
                   </div>
-                  <p className="text-sm text-neutral-400">Drop a video file here or click to browse</p>
-                  <p className="text-xs text-neutral-600 mt-2">MP4, WebM, MOV — up to 500MB</p>
+                  <p className="text-sm text-neutral-400">Drop a video or audio file here or click to browse</p>
+                  <p className="text-xs text-neutral-600 mt-2">MP4, WebM, MOV, M4A, MP3, WAV — up to 25MB</p>
                 </div>
               )}
             </div>
