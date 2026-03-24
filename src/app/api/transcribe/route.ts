@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI, { toFile } from "openai";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+function getOpenAI() {
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+}
 
 export const maxDuration = 300;
 export const runtime = "nodejs";
@@ -27,6 +29,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const openai = getOpenAI();
     const uploadFile = await toFile(buffer, file.name, { type: file.type });
     
     const transcription = await openai.audio.transcriptions.create({

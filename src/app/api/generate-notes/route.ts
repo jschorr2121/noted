@@ -1,7 +1,9 @@
 import { NextRequest } from "next/server";
 import OpenAI from "openai";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+function getOpenAI() {
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+}
 
 export const maxDuration = 120;
 
@@ -40,6 +42,7 @@ Formatting rules:
 - Don't include filler words or repetition from the transcript
 - Infer structure even if the transcript is messy or informal`;
 
+    const openai = getOpenAI();
     const stream = await openai.chat.completions.create({
       model: "gpt-4o",
       stream: true,
