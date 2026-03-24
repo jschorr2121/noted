@@ -60,7 +60,6 @@ Formatting rules (Notion-optimized):
         },
       ],
       temperature: 0.3,
-      max_tokens: 4096,
     });
 
     // Stream the response
