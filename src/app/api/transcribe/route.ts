@@ -7,9 +7,14 @@ export const runtime = "nodejs";
 // to avoid Vercel's body size limits
 export async function POST(req: NextRequest) {
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
+    // Prefer Groq (10x cheaper), fall back to OpenAI
+    const groqKey = process.env.GROQ_API_KEY;
+    const openaiKey = process.env.OPENAI_API_KEY;
+    const useGroq = !!groqKey;
+    const apiKey = groqKey || openaiKey;
+    
     if (!apiKey) {
-      return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
+      return NextResponse.json({ error: "Server configuration error: missing API key" }, { status: 500 });
     }
 
     // Forward the multipart form data directly to OpenAI
@@ -34,11 +39,17 @@ export async function POST(req: NextRequest) {
     // Build a new FormData for OpenAI
     const openaiForm = new FormData();
     openaiForm.append("file", file, file.name);
-    openaiForm.append("model", "whisper-1");
+    openaiForm.append("model", useGroq ? "whisper-large-v3" : "whisper-1");
     openaiForm.append("response_format", "verbose_json");
-    openaiForm.append("timestamp_granularities[]", "segment");
+    if (!useGroq) {
+      openaiForm.append("timestamp_granularities[]", "segment");
+    }
 
-    const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    const baseUrl = useGroq
+      ? "https://api.groq.com/openai/v1/audio/transcriptions"
+      : "https://api.openai.com/v1/audio/transcriptions";
+
+    const response = await fetch(baseUrl, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
