@@ -3,8 +3,10 @@
 import { useState, useCallback, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { FFmpeg } from "@ffmpeg/ffmpeg";
+import { fetchFile, toBlobURL } from "@ffmpeg/util";
 
-type Stage = "idle" | "uploading" | "transcribing" | "generating" | "done" | "error";
+type Stage = "idle" | "uploading" | "compressing" | "transcribing" | "generating" | "done" | "error";
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
@@ -15,7 +17,9 @@ export default function Home() {
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState<"notes" | "transcript">("notes");
   const [dragOver, setDragOver] = useState(false);
+  const [compressionInfo, setCompressionInfo] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const ffmpegRef = useRef<FFmpeg | null>(null);
 
   const handleFile = useCallback((f: File) => {
     const validExts = [".mp4", ".webm", ".mov", ".m4a", ".mp3", ".wav", ".ogg", ".flac"];
@@ -33,6 +37,7 @@ export default function Home() {
     setError("");
     setNotes("");
     setTranscript("");
+    setCompressionInfo("");
     setStage("idle");
   }, []);
 
@@ -43,19 +48,92 @@ export default function Home() {
     if (f) handleFile(f);
   }, [handleFile]);
 
-  const process = async () => {
+  const loadFFmpeg = async () => {
+    if (ffmpegRef.current?.loaded) return ffmpegRef.current;
+    const ffmpeg = new FFmpeg();
+    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
+    await ffmpeg.load({
+      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
+      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
+    });
+    ffmpegRef.current = ffmpeg;
+    return ffmpeg;
+  };
+
+  const compressAudio = async (inputFile: File): Promise<File> => {
+    const ffmpeg = await loadFFmpeg();
+
+    const inputName = "input" + inputFile.name.substring(inputFile.name.lastIndexOf("."));
+    const outputName = "output.mp3";
+
+    await ffmpeg.writeFile(inputName, await fetchFile(inputFile));
+
+    // Convert to mono MP3 at 64kbps, 16kHz (optimal for Whisper)
+    await ffmpeg.exec([
+      "-i", inputName,
+      "-vn",                    // strip video
+      "-ac", "1",               // mono
+      "-ar", "16000",           // 16kHz sample rate
+      "-b:a", "64k",            // 64kbps bitrate
+      "-f", "mp3",
+      outputName,
+    ]);
+
+    const data = await ffmpeg.readFile(outputName);
+    const blob = new Blob([data], { type: "audio/mpeg" });
+
+    // Cleanup
+    await ffmpeg.deleteFile(inputName).catch(() => {});
+    await ffmpeg.deleteFile(outputName).catch(() => {});
+
+    const compressedName = inputFile.name.replace(/\.[^.]+$/, "") + ".mp3";
+    return new File([blob], compressedName, { type: "audio/mpeg" });
+  };
+
+  const processFile = async () => {
     if (!file) return;
     setError("");
     setNotes("");
     setTranscript("");
+    setCompressionInfo("");
 
     try {
-      // Step 1: Upload & Transcribe
+      // Step 1: Compress audio in browser
+      setStage("compressing");
+      setProgress("Loading audio compressor...");
+
+      let fileToUpload = file;
+      const originalSizeMB = file.size / (1024 * 1024);
+
+      // Always compress — extracts audio from video, converts to optimized MP3
+      try {
+        setProgress("Compressing audio...");
+        fileToUpload = await compressAudio(file);
+        const compressedSizeMB = fileToUpload.size / (1024 * 1024);
+        const reduction = ((1 - compressedSizeMB / originalSizeMB) * 100).toFixed(0);
+        setCompressionInfo(
+          `${originalSizeMB.toFixed(1)}MB → ${compressedSizeMB.toFixed(1)}MB (${reduction}% smaller)`
+        );
+      } catch (compressErr) {
+        console.warn("Compression failed, uploading original:", compressErr);
+        // If compression fails and file is small enough, try original
+        if (originalSizeMB > 4) {
+          throw new Error("Could not compress file. Please try a smaller file or convert to MP3 first.");
+        }
+      }
+
+      // Check compressed size
+      const uploadSizeMB = fileToUpload.size / (1024 * 1024);
+      if (uploadSizeMB > 24) {
+        throw new Error(`Compressed file is still ${uploadSizeMB.toFixed(1)}MB. Please try a shorter recording.`);
+      }
+
+      // Step 2: Transcribe
       setStage("transcribing");
       setProgress("Transcribing audio...");
 
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", fileToUpload);
 
       const transcribeRes = await fetch("/api/transcribe", {
         method: "POST",
@@ -67,9 +145,8 @@ export default function Home() {
       try {
         transcribeData = JSON.parse(responseText);
       } catch {
-        // Non-JSON response (e.g. "Request Entity Too Large")
         if (responseText.includes("Request Entity") || responseText.includes("too large") || transcribeRes.status === 413) {
-          throw new Error("File too large for server upload. Please compress your file to under 4MB (e.g. convert to MP3 at 64kbps) and try again.");
+          throw new Error("Compressed file still too large for upload. Please try a shorter recording.");
         }
         throw new Error(`Server error: ${responseText.substring(0, 100)}`);
       }
@@ -81,7 +158,7 @@ export default function Home() {
       const text = transcribeData.text;
       setTranscript(text);
 
-      // Step 2: Generate Notes
+      // Step 3: Generate Notes
       setStage("generating");
       setProgress("Generating comprehensive notes...");
 
@@ -123,7 +200,6 @@ export default function Home() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback
       const textarea = document.createElement("textarea");
       textarea.value = notes;
       document.body.appendChild(textarea);
@@ -174,6 +250,7 @@ th{background:#f5f5f5;font-weight:600}</style></head>
     setTranscript("");
     setNotes("");
     setError("");
+    setCompressionInfo("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -254,7 +331,7 @@ th{background:#f5f5f5;font-weight:600}</style></head>
                     </svg>
                   </div>
                   <p className="text-sm text-neutral-400">Drop a video or audio file here or click to browse</p>
-                  <p className="text-xs text-neutral-600 mt-2">MP4, WebM, MOV, M4A, MP3, WAV — up to 25MB</p>
+                  <p className="text-xs text-neutral-600 mt-2">Any size — auto-compressed in your browser</p>
                 </div>
               )}
             </div>
@@ -265,7 +342,7 @@ th{background:#f5f5f5;font-weight:600}</style></head>
 
             {file && (
               <button
-                onClick={process}
+                onClick={processFile}
                 className="mt-6 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors"
               >
                 Generate Notes
@@ -275,7 +352,7 @@ th{background:#f5f5f5;font-weight:600}</style></head>
         )}
 
         {/* Processing */}
-        {(stage === "transcribing" || stage === "generating") && !notes && (
+        {(stage === "compressing" || stage === "transcribing" || stage === "generating") && !notes && (
           <div className="flex flex-col items-center justify-center min-h-[60vh]">
             <div className="relative w-12 h-12 mb-6">
               <div className="absolute inset-0 rounded-full border-2 border-neutral-800"/>
@@ -283,8 +360,15 @@ th{background:#f5f5f5;font-weight:600}</style></head>
             </div>
             <p className="text-sm font-medium text-neutral-300">{progress}</p>
             <p className="text-xs text-neutral-600 mt-2">
-              {stage === "transcribing" ? "This may take a minute for longer videos" : "Analyzing transcript and structuring notes"}
+              {stage === "compressing"
+                ? "Converting to optimized MP3 in your browser"
+                : stage === "transcribing"
+                ? "This may take a minute for longer recordings"
+                : "Analyzing transcript and structuring notes"}
             </p>
+            {compressionInfo && (
+              <p className="text-xs text-indigo-400 mt-3">{compressionInfo}</p>
+            )}
           </div>
         )}
 
@@ -310,27 +394,32 @@ th{background:#f5f5f5;font-weight:600}</style></head>
           <div>
             {/* Tabs + Actions */}
             <div className="flex items-center justify-between mb-6">
-              <div className="flex gap-1 bg-neutral-900 rounded-lg p-1">
-                <button
-                  onClick={() => setActiveTab("notes")}
-                  className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
-                    activeTab === "notes"
-                      ? "bg-neutral-800 text-neutral-100"
-                      : "text-neutral-500 hover:text-neutral-300"
-                  }`}
-                >
-                  Notes
-                </button>
-                <button
-                  onClick={() => setActiveTab("transcript")}
-                  className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
-                    activeTab === "transcript"
-                      ? "bg-neutral-800 text-neutral-100"
-                      : "text-neutral-500 hover:text-neutral-300"
-                  }`}
-                >
-                  Transcript
-                </button>
+              <div className="flex items-center gap-4">
+                <div className="flex gap-1 bg-neutral-900 rounded-lg p-1">
+                  <button
+                    onClick={() => setActiveTab("notes")}
+                    className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+                      activeTab === "notes"
+                        ? "bg-neutral-800 text-neutral-100"
+                        : "text-neutral-500 hover:text-neutral-300"
+                    }`}
+                  >
+                    Notes
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("transcript")}
+                    className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+                      activeTab === "transcript"
+                        ? "bg-neutral-800 text-neutral-100"
+                        : "text-neutral-500 hover:text-neutral-300"
+                    }`}
+                  >
+                    Transcript
+                  </button>
+                </div>
+                {compressionInfo && (
+                  <span className="text-xs text-neutral-600">{compressionInfo}</span>
+                )}
               </div>
               <div className="flex gap-2">
                 <button
