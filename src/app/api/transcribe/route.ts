@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     // Build a new FormData for OpenAI
     const openaiForm = new FormData();
     openaiForm.append("file", file, file.name);
-    openaiForm.append("model", useGroq ? "whisper-large-v3" : "whisper-1");
+    openaiForm.append("model", useGroq ? "whisper-large-v3-turbo" : "whisper-1");
     openaiForm.append("response_format", "verbose_json");
     if (!useGroq) {
       openaiForm.append("timestamp_granularities[]", "segment");
