@@ -367,6 +367,16 @@ export default function Home() {
     }).from(clone).save();
   };
 
+  const downloadTranscript = () => {
+    const blob = new Blob([transcript], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${file?.name?.replace(/\.[^.]+$/, "") || "transcript"}-transcript.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const downloadHTML = () => {
     const container = document.getElementById("notes-content");
     if (!container) return;
@@ -559,6 +569,7 @@ th{background:#f5f5f5;font-weight:600}</style></head>
                   <button onClick={downloadPDF} className="px-3 py-1.5 text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-md transition-colors">Download .pdf</button>
                   <button onClick={downloadMarkdown} className="px-3 py-1.5 text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-md transition-colors">Download .md</button>
                   <button onClick={downloadHTML} className="px-3 py-1.5 text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-md transition-colors">Download .html</button>
+                  {transcript && <button onClick={downloadTranscript} className="px-3 py-1.5 text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-md transition-colors">Download .txt</button>}
                   <button onClick={reset} className="px-3 py-1.5 text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-md transition-colors">New Video</button>
                 </div>
               </div>
