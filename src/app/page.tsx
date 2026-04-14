@@ -347,10 +347,13 @@ export default function Home() {
           setNotes(accumulated);
         }
         addLog(`Done! ${accumulated.split("\n").length} lines of notes generated.`, "success");
+        // Auto-close log drawer on mobile so it doesn't block buttons
+        if (navigator.maxTouchPoints > 0) setShowLogs(false);
 
         // Save to Supabase if logged in
         if (supabase && user) {
           const { error: dbError } = await supabase.from("transcriptions").insert({
+            user_id: user.id,
             filename: file.name,
             transcript: fullTranscript,
             notes: accumulated,
@@ -370,6 +373,7 @@ export default function Home() {
       setStage("error");
       setError(msg);
       addLog(msg, "error");
+      if (navigator.maxTouchPoints > 0) setShowLogs(false);
     }
   };
 
