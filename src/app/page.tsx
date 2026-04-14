@@ -304,20 +304,6 @@ export default function Home() {
       setTranscript(fullTranscript);
       addLog(`Full transcription: ${fullTranscript.split(" ").length} words`, "success");
 
-      try {
-        const saveRes = await fetch("/api/save-transcript", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ transcript: fullTranscript, filename: file.name }),
-        });
-        if (saveRes.ok) {
-          const { saved } = await saveRes.json();
-          addLog(`Transcript saved: ${saved}`, "success");
-        }
-      } catch {
-        addLog("Could not save transcript to server", "warn");
-      }
-
       setStage("generating");
       setProgress("Generating comprehensive notes...");
       addLog("Generating structured notes...");
