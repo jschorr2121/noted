@@ -26,8 +26,9 @@ export default function AuthModal({ onClose }: AuthModalProps) {
       if (err) setError(err.message);
       else onClose();
     } else {
-      const { error: err } = await supabase.auth.signUp({ email, password });
+      const { data, error: err } = await supabase.auth.signUp({ email, password });
       if (err) setError(err.message);
+      else if (data.session) onClose(); // email confirmation disabled — signed in immediately
       else setMessage("Check your email to confirm your account, then sign in.");
     }
 
