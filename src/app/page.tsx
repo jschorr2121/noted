@@ -355,10 +355,14 @@ export default function Home() {
             transcript: fullTranscript,
             notes: accumulated,
           });
-          if (!dbError) {
+          if (dbError) {
+            addLog(`Could not save to account: ${dbError.message}`, "warn");
+          } else {
             setSavedToAccount(true);
             addLog("Saved to your account", "success");
           }
+        } else if (supabase && !user) {
+          addLog("Not signed in — notes not saved to account", "warn");
         }
       }
     } catch (err) {
@@ -396,7 +400,43 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
+  const buildPrintHTML = () => {
+    const container = document.getElementById("notes-content");
+    if (!container) return null;
+    const title = file?.name?.replace(/\.[^.]+$/, "") || "notes";
+    return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title>
+<style>
+  body{font-family:system-ui,sans-serif;max-width:800px;margin:2rem auto;padding:0 1.5rem;color:#1a1a1a;line-height:1.7;font-size:14px}
+  h1{font-size:1.5rem;border-bottom:2px solid #eee;padding-bottom:.5rem;margin-top:0}
+  h2{font-size:1.2rem;margin-top:1.5rem;border-bottom:1px solid #eee;padding-bottom:.25rem}
+  h3{font-size:1rem}
+  ul,ol{margin-left:1.25rem}li{margin-bottom:.25rem}
+  blockquote{border-left:3px solid #6366f1;padding-left:1rem;color:#555;font-style:italic;margin:1rem 0}
+  strong{color:#111}
+  table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:.5rem .75rem;text-align:left}
+  th{background:#f5f5f5;font-weight:600}
+  @media print{body{margin:0;padding:1rem}}
+</style></head>
+<body>${container.innerHTML}</body></html>`;
+  };
+
   const downloadPDF = async () => {
+    const isMobile = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+
+    if (isMobile) {
+      // iOS/Android block programmatic PDF generation — open printable page instead
+      const html = buildPrintHTML();
+      if (!html) return;
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      return;
+    }
+
+    // Desktop: use html2pdf
     const container = document.getElementById("notes-content");
     if (!container) return;
     const html2pdf = (await import("html2pdf.js")).default;
@@ -590,12 +630,20 @@ th{background:#f5f5f5;font-weight:600}</style></head>
               </div>
               {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
               {file && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); processFile(); }}
-                  className="mt-6 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
-                >
-                  Generate Notes
-                </button>
+                <div className="flex flex-col items-center gap-2 mt-6">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); processFile(); }}
+                    className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
+                  >
+                    Generate Notes
+                  </button>
+                  {supabase && !user && (
+                    <p className="text-xs text-neutral-600">
+                      <button onClick={() => setShowAuth(true)} className="text-indigo-400 hover:text-indigo-300 transition-colors">Sign in</button>
+                      {" "}to save notes to your account
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           )}
