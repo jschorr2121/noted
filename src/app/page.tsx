@@ -38,6 +38,7 @@ export default function Home() {
   const [results, setResults] = useState<FileResult[]>([]);
   const [sel, setSel] = useState(0);
   const [summarize, setSummarize] = useState(true);
+  const [dark, setDark] = useState(false);
   const [stage, setStage] = useState<Stage>("idle");
   const [progress, setProgress] = useState("");
   const [progressPct, setProgressPct] = useState<number | null>(null);
@@ -60,6 +61,15 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ffmpegRef = useRef<FFmpeg | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => setDark(document.documentElement.classList.contains("dark")), []);
+
+  const toggleTheme = () => {
+    const next = !dark;
+    setDark(next);
+    document.documentElement.classList.toggle("dark", next);
+    try { localStorage.theme = next ? "dark" : "light"; } catch {}
+  };
 
   // Load auth session on mount
   useEffect(() => {
@@ -590,6 +600,17 @@ th{background:#f5f5f5;font-weight:600}</style></head>
             <h1 className="text-lg font-semibold tracking-tight">Noted</h1>
           </div>
           <div className="flex items-center gap-2 sm:gap-4">
+            <button
+              onClick={toggleTheme}
+              aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+              className="p-1.5 text-neutral-500 hover:text-neutral-300 rounded-md transition-colors"
+            >
+              {dark ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+              )}
+            </button>
             {logs.length > 0 && (
               <button
                 onClick={() => setShowLogs(!showLogs)}
@@ -685,12 +706,12 @@ th{background:#f5f5f5;font-weight:600}</style></head>
                 )}
               </div>
               {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+              <label className="flex items-center gap-2 text-sm text-neutral-400 cursor-pointer mt-6">
+                <input type="checkbox" checked={summarize} onChange={(e) => setSummarize(e.target.checked)} className="accent-indigo-600" />
+                Generate AI notes{files.length > 1 ? " for each file" : ""} (uncheck for transcript only)
+              </label>
               {file && (
-                <div className="flex flex-col items-center gap-2 mt-6">
-                  <label className="flex items-center gap-2 text-sm text-neutral-400 cursor-pointer mb-2">
-                    <input type="checkbox" checked={summarize} onChange={(e) => setSummarize(e.target.checked)} className="accent-indigo-600" />
-                    Generate AI notes{files.length > 1 ? " for each file" : ""} (uncheck for transcript only)
-                  </label>
+                <div className="flex flex-col items-center gap-2 mt-4">
                   <button
                     onClick={(e) => { e.stopPropagation(); processFiles(); }}
                     className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
@@ -740,7 +761,7 @@ th{background:#f5f5f5;font-weight:600}</style></head>
               <div className="relative w-16 h-16 mb-6">
                 {progressPct !== null ? (
                   <svg className="w-16 h-16 -rotate-90" viewBox="0 0 64 64">
-                    <circle cx="32" cy="32" r="28" fill="none" stroke="#262626" strokeWidth="4" />
+                    <circle cx="32" cy="32" r="28" fill="none" className="stroke-neutral-800" strokeWidth="4" />
                     <circle cx="32" cy="32" r="28" fill="none" stroke="#6366f1" strokeWidth="4"
                       strokeDasharray={`${2 * Math.PI * 28}`}
                       strokeDashoffset={`${2 * Math.PI * 28 * (1 - progressPct / 100)}`}

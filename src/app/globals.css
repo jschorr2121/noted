@@ -1,8 +1,34 @@
 @import "tailwindcss";
 
-:root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+/* Light by default: the app is styled with neutral-* only, so mirroring the
+   scale flips it. .dark restores Tailwind's stock values. */
+@theme {
+  --color-neutral-50: oklch(14.5% 0 0);
+  --color-neutral-100: oklch(20.5% 0 0);
+  --color-neutral-200: oklch(26.9% 0 0);
+  --color-neutral-300: oklch(37.1% 0 0);
+  --color-neutral-400: oklch(43.9% 0 0);
+  --color-neutral-500: oklch(52% 0 0);
+  --color-neutral-600: oklch(60% 0 0);
+  --color-neutral-700: oklch(85% 0 0);
+  --color-neutral-800: oklch(92.2% 0 0);
+  --color-neutral-900: oklch(96% 0 0);
+  --color-neutral-950: oklch(99% 0 0);
+}
+
+.dark {
+  color-scheme: dark;
+  --color-neutral-50: oklch(98.5% 0 0);
+  --color-neutral-100: oklch(97% 0 0);
+  --color-neutral-200: oklch(92.2% 0 0);
+  --color-neutral-300: oklch(87% 0 0);
+  --color-neutral-400: oklch(70.8% 0 0);
+  --color-neutral-500: oklch(55.6% 0 0);
+  --color-neutral-600: oklch(43.9% 0 0);
+  --color-neutral-700: oklch(37.1% 0 0);
+  --color-neutral-800: oklch(26.9% 0 0);
+  --color-neutral-900: oklch(20.5% 0 0);
+  --color-neutral-950: oklch(14.5% 0 0);
 }
 
 ::selection {
@@ -17,11 +43,11 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #333;
+  background: var(--color-neutral-700);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: var(--color-neutral-600);
 }
 
 /* Markdown styling */
@@ -30,15 +56,15 @@
   font-weight: 700;
   margin-top: 1.5rem;
   margin-bottom: 0.75rem;
-  color: #f5f5f5;
+  color: var(--color-neutral-100);
 }
 .prose-notes h2 {
   font-size: 1.25rem;
   font-weight: 600;
   margin-top: 1.25rem;
   margin-bottom: 0.5rem;
-  color: #e5e5e5;
-  border-bottom: 1px solid #262626;
+  color: var(--color-neutral-200);
+  border-bottom: 1px solid var(--color-neutral-800);
   padding-bottom: 0.25rem;
 }
 .prose-notes h3 {
@@ -46,12 +72,12 @@
   font-weight: 600;
   margin-top: 1rem;
   margin-bottom: 0.5rem;
-  color: #d4d4d4;
+  color: var(--color-neutral-300);
 }
 .prose-notes p {
   margin-bottom: 0.5rem;
   line-height: 1.7;
-  color: #a3a3a3;
+  color: var(--color-neutral-400);
 }
 .prose-notes ul, .prose-notes ol {
   margin-left: 1.25rem;
@@ -59,7 +85,7 @@
 }
 .prose-notes li {
   margin-bottom: 0.25rem;
-  color: #a3a3a3;
+  color: var(--color-neutral-400);
   line-height: 1.6;
 }
 .prose-notes ul li {
@@ -69,25 +95,25 @@
   list-style-type: decimal;
 }
 .prose-notes strong {
-  color: #e5e5e5;
+  color: var(--color-neutral-200);
   font-weight: 600;
 }
 .prose-notes blockquote {
   border-left: 3px solid #4f46e5;
   padding-left: 1rem;
   margin: 0.75rem 0;
-  color: #a3a3a3;
+  color: var(--color-neutral-400);
   font-style: italic;
 }
 .prose-notes code {
-  background: #1a1a1a;
+  background: var(--color-neutral-900);
   padding: 0.125rem 0.375rem;
   border-radius: 0.25rem;
   font-size: 0.875rem;
   color: #c084fc;
 }
 .prose-notes hr {
-  border-color: #262626;
+  border-color: var(--color-neutral-800);
   margin: 1rem 0;
 }
 .prose-notes table {
@@ -96,20 +122,20 @@
   margin: 0.75rem 0;
 }
 .prose-notes th, .prose-notes td {
-  border: 1px solid #262626;
+  border: 1px solid var(--color-neutral-800);
   padding: 0.5rem 0.75rem;
   text-align: left;
-  color: #a3a3a3;
+  color: var(--color-neutral-400);
 }
 .prose-notes th {
-  background: #171717;
-  color: #e5e5e5;
+  background: var(--color-neutral-900);
+  color: var(--color-neutral-200);
   font-weight: 600;
 }
 
 /* Upload area animation */
 @keyframes pulse-border {
-  0%, 100% { border-color: #333; }
+  0%, 100% { border-color: var(--color-neutral-700); }
   50% { border-color: #4f46e5; }
 }
 .upload-pulse {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rateLimit } from "@/lib/ratelimit";
 
 export const maxDuration = 300;
 export const runtime = "nodejs";
@@ -6,6 +7,9 @@ export const runtime = "nodejs";
 // Proxy to OpenAI Whisper - streams the request body directly
 // to avoid Vercel's body size limits
 export async function POST(req: NextRequest) {
+  const limited = await rateLimit(req, "transcribe");
+  if (limited) return limited;
+
   try {
     // Prefer Groq (10x cheaper), fall back to OpenAI
     const groqKey = process.env.GROQ_API_KEY;

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import OpenAI from "openai";
+import { rateLimit } from "@/lib/ratelimit";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
@@ -8,6 +9,9 @@ function getOpenAI() {
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
+  const limited = await rateLimit(req, "notes");
+  if (limited) return limited;
+
   try {
     const { transcript, filename } = await req.json();
 
