@@ -60,6 +60,7 @@ export default function Home() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ffmpegRef = useRef<FFmpeg | null>(null);
+  const coreURLsRef = useRef<{ coreURL: string; wasmURL: string } | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => setDark(document.documentElement.classList.contains("dark")), []);
@@ -167,13 +168,16 @@ export default function Home() {
     const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
 
     try {
-      addLog("Downloading ffmpeg core (~30MB, first time only)...");
-      const coreURL = await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript");
-      addLog("Core JS loaded", "success");
-      const wasmURL = await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm");
-      addLog("WASM loaded", "success");
-      addLog("Initializing ffmpeg (this can take 10-20s)...");
-      await ffmpeg.load({ coreURL, wasmURL });
+      if (!coreURLsRef.current) {
+        addLog("Downloading ffmpeg core (~30MB, first time only)...");
+        const coreURL = await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript");
+        addLog("Core JS loaded", "success");
+        const wasmURL = await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm");
+        addLog("WASM loaded", "success");
+        coreURLsRef.current = { coreURL, wasmURL };
+      }
+      addLog("Initializing ffmpeg...");
+      await ffmpeg.load(coreURLsRef.current);
       addLog("Audio compressor ready", "success");
     } catch (loadErr) {
       const msg = loadErr instanceof Error ? loadErr.message : String(loadErr);
@@ -369,20 +373,26 @@ export default function Home() {
 
   // ponytail: files run one at a time — ffmpeg.wasm is a single instance and the
   // transcribe API is rate-limited; pipeline compress/transcribe if batches get slow.
-  const processFiles = async () => {
+  const processFiles = async (retryFailed = false) => {
     if (!files.length) return;
     setError("");
-    setResults(files.map(() => ({ transcript: "", notes: "", error: "" })));
-    setActiveTab(summarize ? "notes" : "transcript");
-    setCompressionInfo("");
-    setLogs([]);
+    const todo = files.map((_, i) => i).filter((i) => !retryFailed || results[i]?.error);
+    if (retryFailed) {
+      todo.forEach((i) => updateResult(i, { transcript: "", notes: "", error: "" }));
+      addLog(`Retrying ${todo.length} failed file${todo.length > 1 ? "s" : ""}`, "warn");
+    } else {
+      setResults(files.map(() => ({ transcript: "", notes: "", error: "" })));
+      setActiveTab(summarize ? "notes" : "transcript");
+      setCompressionInfo("");
+      setLogs([]);
+      setSavedToAccount(false);
+    }
     setShowLogs(true);
     setProgressPct(null);
-    setSavedToAccount(false);
 
     let lastError = "";
     let failures = 0;
-    for (let i = 0; i < files.length; i++) {
+    for (const i of todo) {
       const f = files[i];
       setSel(i);
       addLog(`Starting${files.length > 1 ? ` ${i + 1}/${files.length}` : ""}: ${f.name} (${(f.size / 1024 / 1024).toFixed(1)}MB)`);
@@ -393,16 +403,22 @@ export default function Home() {
         failures++;
         updateResult(i, { error: lastError });
         addLog(`${f.name}: ${lastError}`, "error");
+      } finally {
+        // ffmpeg.wasm leaks heap across runs and is unusable after a crash
+        // ("memory access out of bounds"), so every file gets a fresh instance.
+        ffmpegRef.current?.terminate();
+        ffmpegRef.current = null;
       }
     }
 
+    // Files skipped on retry already succeeded, so only this run's failures matter
     if (failures === files.length) {
       setStage("error");
       setError(lastError);
     } else {
       setStage("done");
       setSel(0);
-      if (failures) addLog(`${failures} of ${files.length} files failed`, "warn");
+      if (failures) addLog(`${failures} of ${todo.length} files failed`, "warn");
     }
     // Auto-close log drawer on mobile so it doesn't block buttons
     if (navigator.maxTouchPoints > 0) setShowLogs(false);
@@ -747,6 +763,11 @@ th{background:#f5f5f5;font-weight:600}</style></head>
                   </button>
                 );
               })}
+              {!isProcessing && results.some((r) => r.error) && (
+                <button onClick={() => processFiles(true)} className="px-3 py-1.5 text-xs bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-600 text-neutral-300 rounded-md transition-colors">
+                  Retry failed ({results.filter((r) => r.error).length})
+                </button>
+              )}
               {stage === "done" && (
                 <button onClick={downloadZip} className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white rounded-md transition-colors">
                   Download all (.zip)
