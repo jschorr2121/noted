@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
+import { zipSync, strToU8 } from "fflate";
 import { supabase, type Transcription } from "@/lib/supabase";
 import type { User } from "@supabase/supabase-js";
 import AuthModal from "@/components/AuthModal";
@@ -24,13 +25,22 @@ function timestamp() {
 
 const MAX_CHUNK_MB = 3.5;
 
+interface FileResult {
+  transcript: string;
+  notes: string;
+  error: string;
+}
+
+const baseName = (name: string) => name.replace(/\.[^.]+$/, "");
+
 export default function Home() {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [results, setResults] = useState<FileResult[]>([]);
+  const [sel, setSel] = useState(0);
+  const [summarize, setSummarize] = useState(true);
   const [stage, setStage] = useState<Stage>("idle");
   const [progress, setProgress] = useState("");
   const [progressPct, setProgressPct] = useState<number | null>(null);
-  const [transcript, setTranscript] = useState("");
-  const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState<"notes" | "transcript">("notes");
   const [dragOver, setDragOver] = useState(false);
@@ -92,22 +102,29 @@ export default function Home() {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
 
-  const handleFile = useCallback((f: File) => {
+  // Derived view of the selected file so single-file UI/download code stays unchanged
+  const file = files[sel] ?? null;
+  const transcript = results[sel]?.transcript ?? "";
+  const notes = results[sel]?.notes ?? "";
+
+  const updateResult = (i: number, patch: Partial<FileResult>) =>
+    setResults((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+
+  const handleFiles = useCallback((list: FileList | File[]) => {
     const validExts = [".mp4", ".webm", ".mov", ".m4a", ".mp3", ".wav", ".ogg", ".flac"];
-    const isValidType = f.type.startsWith("video/") || f.type.startsWith("audio/");
-    const isValidExt = validExts.some((ext) => f.name.toLowerCase().endsWith(ext));
-    if (!isValidType && !isValidExt) {
-      setError("Please upload a video or audio file (MP4, WebM, MOV, M4A, MP3, WAV)");
-      return;
+    const valid: File[] = [];
+    const skipped: string[] = [];
+    for (const f of Array.from(list)) {
+      const isValidType = f.type.startsWith("video/") || f.type.startsWith("audio/");
+      const isValidExt = validExts.some((ext) => f.name.toLowerCase().endsWith(ext));
+      if ((!isValidType && !isValidExt) || f.size > 500 * 1024 * 1024) skipped.push(f.name);
+      else valid.push(f);
     }
-    if (f.size > 500 * 1024 * 1024) {
-      setError("File too large. Max 500MB.");
-      return;
-    }
-    setFile(f);
-    setError("");
-    setNotes("");
-    setTranscript("");
+    setError(skipped.length ? `Skipped (not audio/video or over 500MB): ${skipped.join(", ")}` : "");
+    if (!valid.length) return;
+    setFiles(valid);
+    setResults([]);
+    setSel(0);
     setCompressionInfo("");
     setLogs([]);
     setStage("idle");
@@ -117,9 +134,8 @@ export default function Home() {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    const f = e.dataTransfer.files[0];
-    if (f) handleFile(f);
-  }, [handleFile]);
+    if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+  }, [handleFiles]);
 
   const loadFFmpeg = async () => {
     if (ffmpegRef.current?.loaded) return ffmpegRef.current;
@@ -239,71 +255,60 @@ export default function Home() {
     return chunks;
   };
 
-  const processFile = async () => {
-    if (!file) return;
-    setError("");
-    setNotes("");
-    setTranscript("");
-    setCompressionInfo("");
-    setLogs([]);
-    setShowLogs(true);
-    setProgressPct(null);
-    setSavedToAccount(false);
+  const transcribeOne = async (f: File, i: number) => {
+    setStage("compressing");
+    setProgress("Compressing audio...");
 
-    addLog(`Starting: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
-
+    let chunks: File[];
     try {
-      setStage("compressing");
-      setProgress("Compressing audio...");
+      chunks = await compressAndChunk(f);
+    } catch (compressErr) {
+      const msg = compressErr instanceof Error ? compressErr.message : String(compressErr);
+      addLog(`Compression failed: ${msg}`, "error");
+      if (f.size / 1024 / 1024 <= MAX_CHUNK_MB) {
+        addLog("File small enough to upload directly", "warn");
+        chunks = [f];
+      } else {
+        throw new Error(msg);
+      }
+    }
 
-      let chunks: File[];
+    setStage("transcribing");
+    const transcriptParts: string[] = [];
+
+    for (let c = 0; c < chunks.length; c++) {
+      setProgress(`Transcribing${chunks.length > 1 ? ` chunk ${c + 1}/${chunks.length}` : ""}...`);
+      setProgressPct(Math.round((c / chunks.length) * 100));
+      addLog(`Uploading chunk ${c + 1} (${(chunks[c].size / 1024 / 1024).toFixed(1)}MB)...`);
+
+      const formData = new FormData();
+      formData.append("file", chunks[c]);
+
+      const res = await fetch("/api/transcribe", { method: "POST", body: formData });
+
+      let data;
+      const responseText = await res.text();
       try {
-        chunks = await compressAndChunk(file);
-      } catch (compressErr) {
-        const msg = compressErr instanceof Error ? compressErr.message : String(compressErr);
-        addLog(`Compression failed: ${msg}`, "error");
-        if (file.size / 1024 / 1024 <= MAX_CHUNK_MB) {
-          addLog("File small enough to upload directly", "warn");
-          chunks = [file];
-        } else {
-          throw new Error(msg);
-        }
+        data = JSON.parse(responseText);
+      } catch {
+        throw new Error(`Server error on chunk ${c + 1}: ${responseText.substring(0, 200)}`);
       }
 
-      setStage("transcribing");
-      const transcriptParts: string[] = [];
-
-      for (let i = 0; i < chunks.length; i++) {
-        setProgress(`Transcribing${chunks.length > 1 ? ` chunk ${i + 1}/${chunks.length}` : ""}...`);
-        setProgressPct(Math.round((i / chunks.length) * 100));
-        addLog(`Uploading chunk ${i + 1} (${(chunks[i].size / 1024 / 1024).toFixed(1)}MB)...`);
-
-        const formData = new FormData();
-        formData.append("file", chunks[i]);
-
-        const res = await fetch("/api/transcribe", { method: "POST", body: formData });
-
-        let data;
-        const responseText = await res.text();
-        try {
-          data = JSON.parse(responseText);
-        } catch {
-          throw new Error(`Server error on chunk ${i + 1}: ${responseText.substring(0, 200)}`);
-        }
-
-        if (!res.ok) {
-          throw new Error(data.error || `Transcription failed on chunk ${i + 1}`);
-        }
-
-        transcriptParts.push(data.text);
-        addLog(`Chunk ${i + 1} transcribed: ${data.text.split(" ").length} words`, "success");
+      if (!res.ok) {
+        throw new Error(data.error || `Transcription failed on chunk ${c + 1}`);
       }
 
-      setProgressPct(null);
-      const fullTranscript = transcriptParts.join(" ");
-      setTranscript(fullTranscript);
-      addLog(`Full transcription: ${fullTranscript.split(" ").length} words`, "success");
+      transcriptParts.push(data.text);
+      addLog(`Chunk ${c + 1} transcribed: ${data.text.split(" ").length} words`, "success");
+    }
 
+    setProgressPct(null);
+    const fullTranscript = transcriptParts.join(" ");
+    updateResult(i, { transcript: fullTranscript });
+    addLog(`Full transcription: ${fullTranscript.split(" ").length} words`, "success");
+
+    let accumulated = "";
+    if (summarize) {
       setStage("generating");
       setProgress("Generating comprehensive notes...");
       addLog("Generating structured notes...");
@@ -311,7 +316,7 @@ export default function Home() {
       const notesRes = await fetch("/api/generate-notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript: fullTranscript, filename: file.name }),
+        body: JSON.stringify({ transcript: fullTranscript, filename: f.name }),
       });
 
       if (!notesRes.ok) {
@@ -321,46 +326,98 @@ export default function Home() {
 
       const reader = notesRes.body?.getReader();
       const decoder = new TextDecoder();
-      let accumulated = "";
-
       if (reader) {
-        setStage("done");
         addLog("Streaming notes...", "success");
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           accumulated += decoder.decode(value, { stream: true });
-          setNotes(accumulated);
+          updateResult(i, { notes: accumulated });
         }
         addLog(`Done! ${accumulated.split("\n").length} lines of notes generated.`, "success");
-        // Auto-close log drawer on mobile so it doesn't block buttons
-        if (navigator.maxTouchPoints > 0) setShowLogs(false);
-
-        // Save to Supabase if logged in
-        if (supabase && user) {
-          const { error: dbError } = await supabase.from("transcriptions").insert({
-            user_id: user.id,
-            filename: file.name,
-            transcript: fullTranscript,
-            notes: accumulated,
-          });
-          if (dbError) {
-            addLog(`Could not save to account: ${dbError.message}`, "warn");
-          } else {
-            setSavedToAccount(true);
-            addLog("Saved to your account", "success");
-          }
-        } else if (supabase && !user) {
-          addLog("Not signed in — notes not saved to account", "warn");
-        }
       }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Something went wrong";
-      setStage("error");
-      setError(msg);
-      addLog(msg, "error");
-      if (navigator.maxTouchPoints > 0) setShowLogs(false);
     }
+
+    // Save to Supabase if logged in
+    if (supabase && user) {
+      const { error: dbError } = await supabase.from("transcriptions").insert({
+        user_id: user.id,
+        filename: f.name,
+        transcript: fullTranscript,
+        notes: accumulated,
+      });
+      if (dbError) {
+        addLog(`Could not save to account: ${dbError.message}`, "warn");
+      } else {
+        setSavedToAccount(true);
+        addLog("Saved to your account", "success");
+      }
+    } else if (supabase && !user) {
+      addLog("Not signed in — not saved to account", "warn");
+    }
+  };
+
+  // ponytail: files run one at a time — ffmpeg.wasm is a single instance and the
+  // transcribe API is rate-limited; pipeline compress/transcribe if batches get slow.
+  const processFiles = async () => {
+    if (!files.length) return;
+    setError("");
+    setResults(files.map(() => ({ transcript: "", notes: "", error: "" })));
+    setActiveTab(summarize ? "notes" : "transcript");
+    setCompressionInfo("");
+    setLogs([]);
+    setShowLogs(true);
+    setProgressPct(null);
+    setSavedToAccount(false);
+
+    let lastError = "";
+    let failures = 0;
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      setSel(i);
+      addLog(`Starting${files.length > 1 ? ` ${i + 1}/${files.length}` : ""}: ${f.name} (${(f.size / 1024 / 1024).toFixed(1)}MB)`);
+      try {
+        await transcribeOne(f, i);
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : "Something went wrong";
+        failures++;
+        updateResult(i, { error: lastError });
+        addLog(`${f.name}: ${lastError}`, "error");
+      }
+    }
+
+    if (failures === files.length) {
+      setStage("error");
+      setError(lastError);
+    } else {
+      setStage("done");
+      setSel(0);
+      if (failures) addLog(`${failures} of ${files.length} files failed`, "warn");
+    }
+    // Auto-close log drawer on mobile so it doesn't block buttons
+    if (navigator.maxTouchPoints > 0) setShowLogs(false);
+  };
+
+  const downloadZip = () => {
+    const entries: Record<string, Uint8Array> = {};
+    const add = (name: string, text: string) => {
+      let n = name;
+      for (let k = 2; n in entries; k++) n = name.replace(/(\.[^.]+)$/, ` (${k})$1`);
+      entries[n] = strToU8(text);
+    };
+    files.forEach((f, i) => {
+      const r = results[i];
+      if (!r?.transcript) return;
+      add(`${baseName(f.name)}.txt`, r.transcript);
+      if (r.notes) add(`${baseName(f.name)}-notes.md`, r.notes);
+    });
+    const blob = new Blob([zipSync(entries)], { type: "application/zip" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "transcripts.zip";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const copyForNotion = async () => {
@@ -487,12 +544,12 @@ th{background:#f5f5f5;font-weight:600}</style></head>
   };
 
   const reset = () => {
-    setFile(null);
+    setFiles([]);
+    setResults([]);
+    setSel(0);
     setStage("idle");
     setProgress("");
     setProgressPct(null);
-    setTranscript("");
-    setNotes("");
     setError("");
     setCompressionInfo("");
     setLogs([]);
@@ -594,8 +651,17 @@ th{background:#f5f5f5;font-weight:600}</style></head>
                   dragOver ? "border-indigo-500 bg-indigo-500/5" : file ? "border-neutral-600 bg-neutral-900/50" : "border-neutral-700 hover:border-neutral-500 hover:bg-neutral-900/30"
                 }`}
               >
-                <input ref={fileInputRef} type="file" accept="video/*,audio/*,.mp4,.webm,.mov,.m4a,.mp3,.wav,.ogg,.flac" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
-                {file ? (
+                <input ref={fileInputRef} type="file" accept="video/*,audio/*,.mp4,.webm,.mov,.m4a,.mp3,.wav,.ogg,.flac" multiple className="hidden" onChange={(e) => e.target.files?.length && handleFiles(e.target.files)} />
+                {files.length > 1 ? (
+                  <div>
+                    <p className="text-sm font-medium text-neutral-200">{files.length} files selected</p>
+                    <p className="text-xs text-neutral-500 mt-1">{formatFileSize(files.reduce((s, f) => s + f.size, 0))} total</p>
+                    <ul className="text-xs text-neutral-500 mt-3 space-y-0.5 max-h-32 overflow-y-auto">
+                      {files.map((f, i) => <li key={i} className="truncate">{f.name}</li>)}
+                    </ul>
+                    <p className="text-xs text-neutral-600 mt-3">Tap to change files</p>
+                  </div>
+                ) : file ? (
                   <div>
                     <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-indigo-600/10 flex items-center justify-center">
                       {file.type.startsWith("audio/") || file.name.match(/\.(m4a|mp3|wav|ogg|flac)$/i) ? (
@@ -613,7 +679,7 @@ th{background:#f5f5f5;font-weight:600}</style></head>
                     <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-neutral-800 flex items-center justify-center">
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#737373" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                     </div>
-                    <p className="text-sm text-neutral-400">Drop a video or audio file here or tap to browse</p>
+                    <p className="text-sm text-neutral-400">Drop video or audio files here or tap to browse</p>
                     <p className="text-xs text-neutral-600 mt-2">Any size — auto-compressed & chunked in your browser</p>
                   </div>
                 )}
@@ -621,11 +687,15 @@ th{background:#f5f5f5;font-weight:600}</style></head>
               {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
               {file && (
                 <div className="flex flex-col items-center gap-2 mt-6">
+                  <label className="flex items-center gap-2 text-sm text-neutral-400 cursor-pointer mb-2">
+                    <input type="checkbox" checked={summarize} onChange={(e) => setSummarize(e.target.checked)} className="accent-indigo-600" />
+                    Generate AI notes{files.length > 1 ? " for each file" : ""} (uncheck for transcript only)
+                  </label>
                   <button
-                    onClick={(e) => { e.stopPropagation(); processFile(); }}
+                    onClick={(e) => { e.stopPropagation(); processFiles(); }}
                     className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
                   >
-                    Generate Notes
+                    {summarize ? "Generate Notes" : "Transcribe"}{files.length > 1 ? ` (${files.length} files)` : ""}
                   </button>
                   {supabase && !user && (
                     <p className="text-xs text-neutral-600">
@@ -634,6 +704,32 @@ th{background:#f5f5f5;font-weight:600}</style></head>
                     </p>
                   )}
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Batch file switcher */}
+          {files.length > 1 && results.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 mb-6">
+              {files.map((f, i) => {
+                const r = results[i];
+                const dot = r?.error ? "bg-red-500" : isProcessing && i === sel ? "bg-indigo-500 animate-pulse" : r?.transcript ? "bg-green-500" : "bg-neutral-600";
+                return (
+                  <button
+                    key={i}
+                    onClick={() => !isProcessing && setSel(i)}
+                    disabled={isProcessing}
+                    className={`flex items-center gap-1.5 max-w-[14rem] px-3 py-1.5 text-xs rounded-md transition-colors ${i === sel ? "bg-neutral-800 text-neutral-100" : "text-neutral-500 hover:text-neutral-300"}`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
+                    <span className="truncate">{f.name}</span>
+                  </button>
+                );
+              })}
+              {stage === "done" && (
+                <button onClick={downloadZip} className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white rounded-md transition-colors">
+                  Download all (.zip)
+                </button>
               )}
             </div>
           )}
@@ -662,7 +758,7 @@ th{background:#f5f5f5;font-weight:600}</style></head>
                   </div>
                 )}
               </div>
-              <p className="text-sm font-medium text-neutral-300">{progress}</p>
+              <p className="text-sm font-medium text-neutral-300">{files.length > 1 ? `File ${sel + 1}/${files.length} — ` : ""}{progress}</p>
               <p className="text-xs text-neutral-600 mt-2 text-center px-4">
                 {stage === "compressing" ? "Converting & splitting audio in your browser" : stage === "transcribing" ? "Sending chunks to Whisper" : "Analyzing transcript and structuring notes"}
               </p>
@@ -682,7 +778,9 @@ th{background:#f5f5f5;font-weight:600}</style></head>
           )}
 
           {/* Results */}
-          {(stage === "done" || notes) && (
+          {(stage === "done" || notes) && results[sel]?.error ? (
+            <p className="text-sm text-red-400">{file?.name}: {results[sel].error}</p>
+          ) : (stage === "done" || notes) && (
             <div>
               {/* Save status */}
               {savedToAccount && (
@@ -702,12 +800,12 @@ th{background:#f5f5f5;font-weight:600}</style></head>
               <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-4 flex-wrap">
                   <div className="flex gap-1 bg-neutral-900 rounded-lg p-1">
-                    <button
+                    {notes && <button
                       onClick={() => setActiveTab("notes")}
                       className={`px-4 py-1.5 text-sm rounded-md transition-colors ${activeTab === "notes" ? "bg-neutral-800 text-neutral-100" : "text-neutral-500 hover:text-neutral-300"}`}
                     >
                       Notes
-                    </button>
+                    </button>}
                     <button
                       onClick={() => setActiveTab("transcript")}
                       className={`px-4 py-1.5 text-sm rounded-md transition-colors ${activeTab === "transcript" ? "bg-neutral-800 text-neutral-100" : "text-neutral-500 hover:text-neutral-300"}`}
@@ -720,6 +818,7 @@ th{background:#f5f5f5;font-weight:600}</style></head>
 
                 {/* Buttons — wrap on mobile */}
                 <div className="flex flex-wrap gap-2">
+                  {notes && <>
                   <button
                     onClick={copyForNotion}
                     className={`px-3 py-2 text-xs rounded-md transition-colors ${copied ? "bg-green-600/20 text-green-400 border border-green-600/30" : "bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white"}`}
@@ -735,18 +834,19 @@ th{background:#f5f5f5;font-weight:600}</style></head>
                   <button onClick={downloadHTML} className="px-3 py-2 text-xs bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-600 text-neutral-300 rounded-md transition-colors">
                     Download .html
                   </button>
+                  </>}
                   {transcript && (
                     <button onClick={downloadTranscript} className="px-3 py-2 text-xs bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-600 text-neutral-300 rounded-md transition-colors">
                       Download .txt
                     </button>
                   )}
                   <button onClick={reset} className="px-3 py-2 text-xs bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-600 text-neutral-300 rounded-md transition-colors">
-                    New Video
+                    {files.length > 1 ? "New Files" : "New Video"}
                   </button>
                 </div>
               </div>
 
-              {activeTab === "notes" ? (
+              {activeTab === "notes" && notes ? (
                 <div id="notes-content" className="prose-notes bg-neutral-900/50 border border-neutral-800/50 rounded-xl p-6 sm:p-8">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{notes}</ReactMarkdown>
                 </div>

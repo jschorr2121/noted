@@ -89,7 +89,7 @@ export default function HistoryPanel({ history, loading, onClose, onDelete }: Hi
                 {history.map((item) => (
                   <div key={item.id} className="px-6 py-4 hover:bg-neutral-900/50 transition-colors">
                     <div className="flex items-start justify-between gap-4">
-                      <button onClick={() => { setSelected(item); setActiveTab("notes"); }} className="text-left flex-1 min-w-0">
+                      <button onClick={() => { setSelected(item); setActiveTab(item.notes ? "notes" : "transcript"); }} className="text-left flex-1 min-w-0">
                         <p className="text-sm font-medium text-neutral-200 truncate">{item.filename}</p>
                         <p className="text-xs text-neutral-500 mt-0.5">
                           {new Date(item.created_at).toLocaleDateString("en-US", {
@@ -98,7 +98,7 @@ export default function HistoryPanel({ history, loading, onClose, onDelete }: Hi
                           })}
                         </p>
                         <p className="text-xs text-neutral-600 mt-1.5 line-clamp-2">
-                          {item.notes.replace(/[#*`>]/g, "").substring(0, 140)}...
+                          {(item.notes || item.transcript).replace(/[#*`>]/g, "").substring(0, 140)}...
                         </p>
                       </button>
                       <button
