@@ -768,7 +768,7 @@ th{background:#f5f5f5;font-weight:600}</style></head>
                   Retry failed ({results.filter((r) => r.error).length})
                 </button>
               )}
-              {stage === "done" && (
+              {results.some((r) => r.transcript) && (
                 <button onClick={downloadZip} className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white rounded-md transition-colors">
                   Download all (.zip)
                 </button>
